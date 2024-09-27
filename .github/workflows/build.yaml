@@ -1,0 +1,67 @@
+name: Build
+on:
+  workflow_dispatch:
+defaults:
+  run:
+    shell: bash
+jobs:
+  get-version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Create Version
+      id: create-version
+      run: |
+        latest_tag=$(git tag -l | tail -1)
+        version=$(echo "${latest_tag:1}")
+        echo "version=$version" >> $GITHUB_OUTPUT
+    outputs:
+      version: ${{ steps.create-version.outputs.version }}
+
+  define-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      environments: ${{ steps.targets.outputs.environments }}
+    steps:
+      - name: Define Target Environment
+        id: targets
+        run: |
+          echo 'environments=["dev"]' >> $GITHUB_OUTPUT
+
+  build-image:
+    needs: [get-version,define-matrix]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        environment: ${{ fromJSON(needs.define-matrix.outputs.environments) }}
+    environment: ${{ matrix.environment }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '21'
+    - name: Create Foo
+      id: create-foo
+      run: |
+        echo "Foo" > foo.txt
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    - name: Build, Tag, and Publish Docker Image
+      id: build-image
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        push: true
+        build-args: |
+          VERSION=${{ needs.setup.outputs.version }}
+          TARGET_ENVIRONMENT=${{ matrix.environment }}
+          FILE_NAME=foo.txt
